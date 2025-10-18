@@ -1,10 +1,32 @@
 const std = @import("std");
+const tree_sitter = @import("tree_sitter");
 const c = @cImport({
     @cInclude("Python.h");
 });
 
+var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+const allocator = gpa.allocator();
+
+extern fn tree_sitter_python() callconv(.c) *tree_sitter.Language;
+
 pub export fn example(self: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
     _ = self;
+
+    const language = tree_sitter_python();
+    defer language.destroy();
+
+    var parser = tree_sitter.Parser.create();
+    defer parser.destroy();
+    parser.setLanguage(language) catch {};
+
+    const tree = parser.parseString("print('hello world')", null);
+    defer {
+        if (tree) |confirmed_tree| {
+            confirmed_tree.destroy();
+        }
+    }
+
+    std.debug.print("{any}\n", .{tree});
 
     var value: c_long = undefined;
     _ = c.PyArg_ParseTuple(args, "l", &value);

@@ -1,6 +1,12 @@
 .{
     .name = .example_python_library,
     .version = "0.0.1",
+    .dependencies = .{
+        .tree_sitter = .{
+            .url = "https://github.com/tree-sitter/zig-tree-sitter/archive/4c5d3a45a9828b8fddd3d59132c4346182fc23b7.zip",
+            .hash = "tree_sitter-0.25.0-8heIf4KZAQCmEhQwLPPtKBsU3BBkohvUJpfDXc7vmDM7",
+        },
+    },
     .minimum_zig_version = "0.15.1",
     .paths = .{""},
     .fingerprint = 0x12e4325af3be91d7,
