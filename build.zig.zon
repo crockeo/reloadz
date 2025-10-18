@@ -1,0 +1,7 @@
+.{
+    .name = .example_python_library,
+    .version = "0.0.1",
+    .minimum_zig_version = "0.15.1",
+    .paths = .{""},
+    .fingerprint = 0x12e4325af3be91d7,
+}
