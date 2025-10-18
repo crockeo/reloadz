@@ -17,7 +17,10 @@ pub export fn example(self: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [
 
     var parser = tree_sitter.Parser.create();
     defer parser.destroy();
-    parser.setLanguage(language) catch {};
+    parser.setLanguage(language) catch {
+        c.PyErr_SetString(c.PyExc_ValueError, "Unable to parse string");
+        return null;
+    };
 
     const tree = parser.parseString("print('hello world')", null);
     defer {
