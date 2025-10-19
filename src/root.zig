@@ -2,6 +2,7 @@ const std = @import("std");
 const tree_sitter = @import("tree_sitter");
 const c = @cImport({
     @cInclude("Python.h");
+    @cInclude("string.h");
 });
 
 const hot_reloader = @import("./hot_reloader.zig");
@@ -9,54 +10,17 @@ const hot_reloader = @import("./hot_reloader.zig");
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 const default_allocator = gpa.allocator();
 
-// pub export fn example(self: [*c]c.PyObject, args: [*c]c.PyObject) callconv(.c) [*c]c.PyObject {
-//     _ = self;
-//
-//
-//     var parser = tree_sitter.Parser.create();
-//     defer parser.destroy();
-//     parser.setLanguage(language) catch {
-//         c.PyErr_SetString(c.PyExc_Exception, "Unable to set parser.");
-//         return null;
-//     };
-//
-//     const tree = parser.parseString("print('hello world')", null) orelse {
-//         c.PyErr_SetString(c.PyExc_Exception, "Unable to parse tree.");
-//         return null;
-//     };
-//     defer tree.destroy();
-//
-//     walk_tree(default_allocator, tree) catch {
-//         c.PyErr_SetString(c.PyExc_Exception, "Unable to walk tree.");
-//         return null;
-//     };
-//
-//     var value: c_long = undefined;
-//     _ = c.PyArg_ParseTuple(args, "l", &value);
-//
-//     return c.PyLong_FromLong(value + 1);
-// }
-//
-// fn walk_tree(allocator: std.mem.Allocator, tree: *const tree_sitter.Tree) !void {
-//     var stack = std.ArrayList(tree_sitter.Node).empty;
-//     defer stack.deinit(allocator);
-//
-//     try stack.append(allocator, tree.rootNode());
-//     while (stack.pop()) |node| {
-//         std.debug.print("{s}\n", .{node.kind()});
-//
-//         var cursor = node.walk();
-//         if (!cursor.gotoFirstChild()) {
-//             continue;
-//         }
-//         try stack.append(allocator, cursor.node());
-//         while (cursor.gotoNextSibling()) {
-//             try stack.append(allocator, cursor.node());
-//         }
-//     }
-// }
+var hot_reloader_methods = [_]c.PyMethodDef{
+    c.PyMethodDef{
+        .ml_doc = null,
+        .ml_flags = c.METH_VARARGS,
+        .ml_meth = &hot_reloader_parse_file,
+        .ml_name = "parse_file",
+    },
+    c.PyMethodDef{ .ml_doc = null, .ml_flags = 0, .ml_meth = null, .ml_name = null },
+};
 
-var HotReloaderType = c.PyTypeObject{
+var hot_reloader_type = c.PyTypeObject{
     // We do not have access to `PyVarObject_HEAD_INIT` in Zig,
     // because the Zig compiler cannot parse the `define`.
     // Instead we populate `.ob_base` manually.
@@ -67,14 +31,15 @@ var HotReloaderType = c.PyTypeObject{
         },
         .ob_size = 0,
     },
-    .tp_name = "reloadz.HotReloader",
-    .tp_doc = c.PyDoc_STR("Hot reloading system for Python."),
     .tp_basicsize = @sizeOf(hot_reloader.HotReloader),
-    .tp_itemsize = 0,
+    .tp_doc = c.PyDoc_STR("Hot reloading system for Python."),
     .tp_flags = c.Py_TPFLAGS_DEFAULT,
-    .tp_new = c.PyType_GenericNew,
-    .tp_init = hot_reloader_init,
     .tp_free = hot_reloader_free,
+    .tp_init = hot_reloader_init,
+    .tp_itemsize = 0,
+    .tp_methods = &hot_reloader_methods,
+    .tp_name = "reloadz.HotReloader",
+    .tp_new = c.PyType_GenericNew,
 };
 
 fn hot_reloader_init(
@@ -96,16 +61,31 @@ fn hot_reloader_free(self_raw: ?*anyopaque) callconv(.c) void {
     self.deinit();
 }
 
-fn hot_reloader_parse(self_raw: [*c]c.PyObject, _: [*c]c.PyObject, _: [*c]c.PyObject) void {
+fn hot_reloader_parse_file(
+    self_raw: [*c]c.PyObject,
+    args: [*c]c.PyObject,
+) callconv(.c) [*c]c.PyObject {
+    var path_raw: [*c]u8 = undefined;
+    if (c.PyArg_ParseTuple(args, "s", &path_raw) == 0) {
+        c.PyErr_SetString(c.PyExc_TypeError, "Must call with exactly 1 string arg.");
+        return null;
+    }
+    const path = path_raw[0..c.strlen(path_raw)];
+
     const self: *hot_reloader.HotReloader = @ptrCast(self_raw.?);
-    _ = self;
+    self.parse_file(path) catch {
+        c.PyErr_SetString(c.PyExc_Exception, "Unexpected error while parsing.");
+        return null;
+    };
+
+    return c.Py_None();
 }
 
 fn init(module: [*c]c.PyObject) callconv(.c) c_int {
-    if (c.PyType_Ready(&HotReloaderType) < 0) {
+    if (c.PyType_Ready(&hot_reloader_type) < 0) {
         return -1;
     }
-    if (c.PyModule_AddObjectRef(module, "HotReloader", @ptrCast(&HotReloaderType)) < 0) {
+    if (c.PyModule_AddObjectRef(module, "HotReloader", @ptrCast(&hot_reloader_type)) < 0) {
         return -1;
     }
     return 0;
@@ -120,19 +100,8 @@ var reloadz_module_slots = [_]c.PyModuleDef_Slot{
     c.PyModuleDef_Slot{ .slot = 0, .value = null },
 };
 
-var reloadz_methods = [_]c.PyMethodDef{
-    // c.PyMethodDef{
-    //     .ml_doc = null,
-    //     .ml_flags = c.METH_VARARGS,
-    //     .ml_meth = &example,
-    //     .ml_name = "example",
-    // },
-    c.PyMethodDef{ .ml_doc = null, .ml_flags = 0, .ml_meth = null, .ml_name = null },
-};
-
 var reloadz_module = c.PyModuleDef{
     .m_free = deinit,
-    .m_methods = &reloadz_methods,
     .m_name = "reloadz",
     .m_slots = &reloadz_module_slots,
 };
