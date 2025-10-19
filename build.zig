@@ -30,12 +30,12 @@ pub fn build(b: *std.Build) !void {
     });
 
     const lib = b.addLibrary(.{
-        .name = "example_python_library",
+        .name = "reloadz",
         .root_module = mod,
         .linkage = .dynamic,
     });
     const lib_tests = b.addTest(.{
-        .name = "example_python_library_tests",
+        .name = "reloadz_tests",
         .root_module = mod,
     });
 

@@ -1,5 +1,5 @@
 .{
-    .name = .example_python_library,
+    .name = .reloadz,
     .version = "0.0.1",
     .dependencies = .{
         .tree_sitter = .{
@@ -9,5 +9,5 @@
     },
     .minimum_zig_version = "0.15.1",
     .paths = .{""},
-    .fingerprint = 0x12e4325af3be91d7,
+    .fingerprint = 0x79716a1a18e7e89a,
 }
