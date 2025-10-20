@@ -9,6 +9,8 @@ extern fn tree_sitter_python() callconv(.c) *tree_sitter.Language;
 
 const HotReloaderError = error{
     FailedParse,
+    OutOfMemory,
+    Unsupported,
 };
 
 pub const HotReloader = struct {
@@ -19,13 +21,16 @@ pub const HotReloader = struct {
     ob_base: c.PyObject,
 
     allocator: std.mem.Allocator,
+    condvar: std.Thread.Condition,
     gpa: std.heap.GeneralPurposeAllocator(.{}),
     language: *tree_sitter.Language,
+    last_file_change: std.time.Instant,
+    mutex: std.Thread.Mutex,
     parser: *tree_sitter.Parser,
+    pending_reloads: std.ArrayList([]const u8),
 
     pub fn init(self: *Self) !void {
         self.gpa = std.heap.GeneralPurposeAllocator(.{}){};
-        self.allocator = self.gpa.allocator();
 
         const language = tree_sitter_python();
         errdefer language.destroy();
@@ -34,12 +39,27 @@ pub const HotReloader = struct {
         errdefer parser.destroy();
         try parser.setLanguage(language);
 
+        self.allocator = self.gpa.allocator();
+        self.condvar = .{};
         self.language = language;
+        self.last_file_change = try .now();
+        self.mutex = .{};
         self.parser = parser;
+        self.pending_reloads = .empty;
     }
 
     pub fn deinit(self: *Self) void {
         self.language.destroy();
+        self.parser.destroy();
+    }
+
+    pub fn file_changed(self: *Self, path: []const u8) HotReloaderError!void {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+
+        try self.pending_reloads.append(self.allocator, try self.allocator.dupe(path));
+        self.last_file_change = try std.time.Instant.now();
+        self.condvar.signal();
     }
 
     pub fn parse_file(self: *const Self, path: []const u8) !void {
