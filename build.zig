@@ -11,7 +11,7 @@ pub fn build(b: *std.Build) !void {
     });
 
     const frameworkRoot = std.Build.LazyPath{
-        .cwd_relative = "/opt/homebrew/Cellar/python@3.13/3.13.1/Frameworks/Python.framework/Versions/3.13/",
+        .cwd_relative = "/opt/homebrew/Cellar/python@3.13/3.13.3_1/Frameworks/Python.framework/Versions/3.13/",
     };
     mod.addIncludePath(try frameworkRoot.join(b.allocator, "Headers"));
     mod.addLibraryPath(try frameworkRoot.join(b.allocator, "lib"));

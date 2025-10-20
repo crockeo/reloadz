@@ -14,6 +14,12 @@ var hot_reloader_methods = [_]c.PyMethodDef{
     c.PyMethodDef{
         .ml_doc = null,
         .ml_flags = c.METH_VARARGS,
+        .ml_meth = &hot_reloader_file_changed,
+        .ml_name = "file_changed",
+    },
+    c.PyMethodDef{
+        .ml_doc = null,
+        .ml_flags = c.METH_VARARGS,
         .ml_meth = &hot_reloader_parse_file,
         .ml_name = "parse_file",
     },
@@ -59,6 +65,26 @@ fn hot_reloader_init(
 fn hot_reloader_free(self_raw: ?*anyopaque) callconv(.c) void {
     var self: *hot_reloader.HotReloader = @ptrCast(@alignCast(self_raw.?));
     self.deinit();
+}
+
+fn hot_reloader_file_changed(
+    self_raw: [*c]c.PyObject,
+    args: [*c]c.PyObject,
+) callconv(.c) [*c]c.PyObject {
+    var path_raw: [*c]u8 = undefined;
+    if (c.PyArg_ParseTuple(args, "s", &path_raw) == 0) {
+        c.PyErr_SetString(c.PyExc_TypeError, "Must call with exactly 1 string arg.");
+        return null;
+    }
+    const path = path_raw[0..c.strlen(path_raw)];
+
+    const self: *hot_reloader.HotReloader = @ptrCast(self_raw.?);
+    self.file_changed(path) catch {
+        c.PyErr_SetString(c.PyExc_Exception, "Unexpected error while parsing.");
+        return null;
+    };
+
+    return c.Py_None();
 }
 
 fn hot_reloader_parse_file(

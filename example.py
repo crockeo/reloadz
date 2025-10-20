@@ -1,5 +1,6 @@
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 
@@ -21,7 +22,11 @@ def make_hot_reloader():
 def main() -> None:
     build()
     hot_reloader = make_hot_reloader()
-    hot_reloader.parse_file("example.py")
+    for i in range(100):
+        print("calling")
+        hot_reloader.file_changed(f"example{i}.py")
+        time.sleep(0.005)
+    time.sleep(1)
 
 
 if __name__ == "__main__":

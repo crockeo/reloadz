@@ -13,6 +13,8 @@ const HotReloaderError = error{
     Unsupported,
 };
 
+const NS_DEBOUNCE_PERIOD = 250 * std.time.ns_per_ms;
+
 pub const HotReloader = struct {
     const Self = @This();
 
@@ -21,6 +23,7 @@ pub const HotReloader = struct {
     ob_base: c.PyObject,
 
     allocator: std.mem.Allocator,
+    background_thread: std.Thread,
     condvar: std.Thread.Condition,
     gpa: std.heap.GeneralPurposeAllocator(.{}),
     language: *tree_sitter.Language,
@@ -46,6 +49,16 @@ pub const HotReloader = struct {
         self.mutex = .{};
         self.parser = parser;
         self.pending_reloads = .empty;
+
+        // This has to be initialized after everything else,
+        // so that everything is set before the background thread is started.
+        self.background_thread = try .spawn(
+            .{
+                .allocator = self.allocator,
+            },
+            Self.background_thread_main,
+            .{self},
+        );
     }
 
     pub fn deinit(self: *Self) void {
@@ -57,9 +70,47 @@ pub const HotReloader = struct {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        try self.pending_reloads.append(self.allocator, try self.allocator.dupe(path));
+        try self.pending_reloads.append(self.allocator, try self.allocator.dupe(u8, path));
         self.last_file_change = try std.time.Instant.now();
         self.condvar.signal();
+    }
+
+    fn background_thread_main(self: *Self) HotReloaderError!void {
+        while (true) {
+            self.mutex.lock();
+
+            const now = try std.time.Instant.now();
+            const ns_since_last_change = now.since(self.last_file_change);
+            if (ns_since_last_change < NS_DEBOUNCE_PERIOD) {
+                self.mutex.unlock();
+                std.Thread.sleep(NS_DEBOUNCE_PERIOD - ns_since_last_change);
+                continue;
+            }
+
+            if (self.pending_reloads.items.len > 0) {
+                self.handle_pending_reloads();
+                self.mutex.unlock();
+                continue;
+            }
+
+            self.condvar.wait(&self.mutex);
+        }
+    }
+
+    fn handle_pending_reloads(self: *Self) void {
+        if (self.pending_reloads.items.len == 0) {
+            @panic("Logic error. Should only be called when we have pending reloads.");
+        }
+        for (self.pending_reloads.items) |path| {
+            std.debug.print("Reloading: {s}\n", .{path});
+        }
+        self.clear_pending_reloads();
+    }
+
+    fn clear_pending_reloads(self: *Self) void {
+        while (self.pending_reloads.pop()) |path| {
+            self.allocator.free(path);
+        }
     }
 
     pub fn parse_file(self: *const Self, path: []const u8) !void {
