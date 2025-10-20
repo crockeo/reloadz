@@ -84,10 +84,13 @@ pub const ImportGraph = struct {
             .payload = @ptrCast(file_input),
             .read = ts_input_from_file,
         }, null) orelse {
-            std.debug.print("Failed to parse\n", .{});
+            if (file_input.err) |err| {
+                return err;
+            }
             return error.FailedToParse;
         };
         defer tree.destroy();
+
         if (file_input.err) |err| {
             return err;
         }
