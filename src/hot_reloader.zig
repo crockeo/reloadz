@@ -30,7 +30,7 @@ pub const HotReloader = struct {
     last_file_change: std.time.Instant,
     mutex: std.Thread.Mutex,
     parser: *tree_sitter.Parser,
-    pending_reloads: std.ArrayList([]const u8),
+    pending_reloads: std.StringHashMap(struct {}),
 
     pub fn init(self: *Self) !void {
         self.gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -48,7 +48,7 @@ pub const HotReloader = struct {
         self.last_file_change = try .now();
         self.mutex = .{};
         self.parser = parser;
-        self.pending_reloads = .empty;
+        self.pending_reloads = .init(self.allocator);
 
         // This has to be initialized after everything else,
         // so that everything is set before the background thread is started.
@@ -64,13 +64,19 @@ pub const HotReloader = struct {
     pub fn deinit(self: *Self) void {
         self.language.destroy();
         self.parser.destroy();
+
+        var iter = self.pending_reloads.keyIterator();
+        while (iter.next()) |path| {
+            self.allocator.free(path.*);
+        }
+        self.pending_reloads.deinit();
     }
 
     pub fn file_changed(self: *Self, path: []const u8) HotReloaderError!void {
         self.mutex.lock();
         defer self.mutex.unlock();
 
-        try self.pending_reloads.append(self.allocator, try self.allocator.dupe(u8, path));
+        try self.pending_reloads.put(try self.allocator.dupe(u8, path), .{});
         self.last_file_change = try std.time.Instant.now();
         self.condvar.signal();
     }
@@ -87,7 +93,7 @@ pub const HotReloader = struct {
                 continue;
             }
 
-            if (self.pending_reloads.items.len > 0) {
+            if (self.pending_reloads.count() > 0) {
                 self.handle_pending_reloads();
                 self.mutex.unlock();
                 continue;
@@ -98,19 +104,23 @@ pub const HotReloader = struct {
     }
 
     fn handle_pending_reloads(self: *Self) void {
-        if (self.pending_reloads.items.len == 0) {
+        if (self.pending_reloads.count() == 0) {
             @panic("Logic error. Should only be called when we have pending reloads.");
         }
-        for (self.pending_reloads.items) |path| {
-            std.debug.print("Reloading: {s}\n", .{path});
+
+        var iter = self.pending_reloads.keyIterator();
+        while (iter.next()) |path| {
+            std.debug.print("Reloading: {s}\n", .{path.*});
         }
         self.clear_pending_reloads();
     }
 
     fn clear_pending_reloads(self: *Self) void {
-        while (self.pending_reloads.pop()) |path| {
-            self.allocator.free(path);
+        var iter = self.pending_reloads.keyIterator();
+        while (iter.next()) |path| {
+            self.allocator.free(path.*);
         }
+        self.pending_reloads.clearAndFree();
     }
 
     pub fn parse_file(self: *const Self, path: []const u8) !void {
