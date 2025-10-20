@@ -5,6 +5,8 @@ const c = @cImport({
     @cInclude("Python.h");
 });
 
+const import_graph = @import("import_graph.zig");
+
 extern fn tree_sitter_python() callconv(.c) *tree_sitter.Language;
 
 const HotReloaderError = error{
@@ -26,6 +28,7 @@ pub const HotReloader = struct {
     background_thread: std.Thread,
     condvar: std.Thread.Condition,
     gpa: std.heap.GeneralPurposeAllocator(.{}),
+    import_graph: import_graph.ImportGraph,
     language: *tree_sitter.Language,
     last_file_change: std.time.Instant,
     mutex: std.Thread.Mutex,
@@ -44,6 +47,7 @@ pub const HotReloader = struct {
 
         self.allocator = self.gpa.allocator();
         self.condvar = .{};
+        self.import_graph = import_graph.ImportGraph.init(self.allocator, parser);
         self.language = language;
         self.last_file_change = try .now();
         self.mutex = .{};
@@ -62,6 +66,7 @@ pub const HotReloader = struct {
     }
 
     pub fn deinit(self: *Self) void {
+        self.import_graph.deinit();
         self.language.destroy();
         self.parser.destroy();
 
@@ -110,7 +115,7 @@ pub const HotReloader = struct {
 
         var iter = self.pending_reloads.keyIterator();
         while (iter.next()) |path| {
-            std.debug.print("Reloading: {s}\n", .{path.*});
+            self.import_graph.parse_file(path.*) catch {};
         }
         self.clear_pending_reloads();
     }

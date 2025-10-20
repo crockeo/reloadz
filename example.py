@@ -23,8 +23,7 @@ def main() -> None:
     build()
     hot_reloader = make_hot_reloader()
     for i in range(100):
-        print("calling")
-        hot_reloader.file_changed(f"example{i}.py")
+        hot_reloader.file_changed("example.py")
         time.sleep(0.005)
     time.sleep(1)
 
